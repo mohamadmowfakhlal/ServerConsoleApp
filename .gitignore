@@ -1,0 +1,20 @@
+# Build files
+bin/
+obj/
+
+# VS Code or Visual Studio
+.vs/
+*.user
+*.suo
+
+# OS-specific
+Proerties/
+
+# Rider IDE
+.idea/
+
+# Logs
+*.log
+
+# Other temporary files
+*.cache
