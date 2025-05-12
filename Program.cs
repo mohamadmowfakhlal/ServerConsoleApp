@@ -1,35 +1,42 @@
-﻿using System.Net.Sockets;
+﻿using System;
+using System.Collections.Generic;
 using System.Net;
+using System.Net.Sockets;
 using System.Text;
+using System.Threading;
 
-namespace Client_Server
+namespace TcpMultiClientServer
 {
-    internal class Program
+    class Program
     {
-        static void Main()
+        private static List<TcpClient> clients = new List<TcpClient>();
+        private static readonly object clientLock = new object();
+
+        static void Main(string[] args)
         {
             int port = 5000;
             TcpListener server = new TcpListener(IPAddress.Any, port);
-
             server.Start();
-            Console.WriteLine("Server started. Waiting for connection...");
+            Console.WriteLine($"Server started on port {port}");
 
             while (true)
             {
                 TcpClient client = server.AcceptTcpClient();
-                Console.WriteLine("Client connected!");
+                Console.WriteLine("Client connected");
 
-                // Handle client in a new thread
+                lock (clientLock)
+                {
+                    clients.Add(client);
+                }
+
                 Thread clientThread = new Thread(HandleClient);
                 clientThread.Start(client);
             }
-        
-
         }
 
-        static void HandleClient(object clientObject)
+        static void HandleClient(object clientObj)
         {
-            TcpClient client = (TcpClient)clientObject;
+            TcpClient client = (TcpClient)clientObj;
             NetworkStream stream = client.GetStream();
             byte[] buffer = new byte[1024];
             int bytesRead;
@@ -38,25 +45,44 @@ namespace Client_Server
             {
                 while ((bytesRead = stream.Read(buffer, 0, buffer.Length)) > 0)
                 {
-                    string received = Encoding.ASCII.GetString(buffer, 0, bytesRead);
-                    //WE should do decryption
-                    Console.WriteLine($"Received from client: {received}");
+                    string message = Encoding.UTF8.GetString(buffer, 0, bytesRead);
+                    Console.WriteLine($"Received: {message}");
 
-                    // Echo back
-                    //We should do encryption
-                    string response = "Server received: " + received;
-                    byte[] responseData = Encoding.ASCII.GetBytes(response);
-                    stream.Write(responseData, 0, responseData.Length);
+                    // Prepare broadcast message
+                    byte[] broadcastData = Encoding.UTF8.GetBytes(message);
+
+                    // Broadcast to all clients
+                    lock (clientLock)
+                    {
+                        foreach (TcpClient otherClient in clients.ToArray())
+                        {
+                            try
+                            {
+                                NetworkStream otherStream = otherClient.GetStream();
+                                otherStream.Write(broadcastData, 0, broadcastData.Length);
+                            }
+                            catch
+                            {
+                                Console.WriteLine("Removing dead client.");
+                                clients.Remove(otherClient);
+                            }
+                        }
+                    }
                 }
             }
-            catch (Exception e)
+            catch (Exception ex)
             {
-                Console.WriteLine("Client disconnected: " + e.Message);
+                Console.WriteLine("Client connection error: " + ex.Message);
             }
             finally
             {
+                lock (clientLock)
+                {
+                    clients.Remove(client);
+                }
                 stream.Close();
                 client.Close();
+                Console.WriteLine("Client disconnected.");
             }
         }
     }
